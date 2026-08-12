@@ -1,0 +1,39 @@
+# Deploys the site to GitHub Pages.
+#
+# Replaces the legacy "deploy from a branch" builder, whose build job wedged
+# in the queue without ever being assigned a runner and could not be cancelled.
+# This workflow is visible, re-runnable, and fails loudly instead of silently
+# sitting in "building" forever.
+#
+# There is no build step — the repo root is the site.
+name: Deploy to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# let a running deploy finish rather than stacking up
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: .            # .git and .github are excluded by the action
+      - id: deployment
+        uses: actions/deploy-pages@v4
