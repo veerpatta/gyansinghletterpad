@@ -1,0 +1,236 @@
+/* ═══════════════════════════════════════════════════════════════
+   page.css — the A4 letter itself.
+   Shared by the on-screen preview, the PDF capture and @media print.
+   Nothing in here may depend on the app chrome.
+   ═══════════════════════════════════════════════════════════════ */
+
+@font-face {
+  font-family: 'Noto Sans Devanagari';
+  src: url('../fonts/NotoSansDevanagari-dev.woff2') format('woff2');
+  font-weight: 400 700;
+  font-display: block;
+  unicode-range: U+0900-097F, U+1CD0-1CF9, U+200C-200D, U+20A8, U+20B9,
+                 U+20F0, U+25CC, U+A830-A839, U+A8E0-A8FF, U+11B00-11B09;
+}
+@font-face {
+  font-family: 'Noto Sans Devanagari';
+  src: url('../fonts/NotoSansDevanagari-latin.woff2') format('woff2');
+  font-weight: 400 700;
+  font-display: block;
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6,
+                 U+02DA, U+02DC, U+2000-206F, U+20AC, U+2122, U+2212, U+FEFF, U+FFFD;
+}
+
+:root {
+  --pg-w: 210mm;
+  --pg-h: 297mm;
+  --pg-pad-x: 15mm;
+  --pg-pad-t: 11mm;
+  --pg-pad-b: 13mm;
+  --ink: #14161a;
+  --ink-soft: #3a3f47;
+  --saffron: #ff9933;
+  --green: #138808;
+  --navy: #0d2b6b;
+  --brandred: #d2371a;
+  --body-size: 16px;      /* driven by the auto-fit routine */
+  --head-h: 42mm;         /* letterhead strip height, user-adjustable */
+}
+
+/* ── the sheet ───────────────────────────────────────────────── */
+.page {
+  width: var(--pg-w);
+  height: var(--pg-h);
+  padding: var(--pg-pad-t) var(--pg-pad-x) var(--pg-pad-b);
+  box-sizing: border-box;
+  background: #fff;
+  color: var(--ink);
+  font-family: 'Noto Sans Devanagari', system-ui, sans-serif;
+  font-size: var(--body-size);
+  line-height: 1.85;
+  overflow: hidden;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  /* keeps the browser from reflowing text differently at capture time */
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+}
+.page + .page { margin-top: 6mm; }
+
+/* ── letterhead: real scanned strip ──────────────────────────────
+   Painted as a background, not an <img>: html2canvas reproduces
+   background-size/position faithfully but is unreliable with
+   object-fit. The height is fixed so layout never waits on the
+   image to decode — measurements stay deterministic.              */
+.lh {
+  flex: 0 0 auto;
+  height: var(--head-h);
+  background-repeat: no-repeat;
+  background-position: center top;
+  background-size: 100% auto;
+}
+
+/* ── letterhead: CSS stand-in (used until the scan is supplied) ─ */
+.lhx { flex: 0 0 auto; }
+.lhx__grid {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  align-items: center;
+  column-gap: 5mm;
+}
+.lhx__name {
+  font-size: 26px;
+  font-weight: 700;
+  color: var(--brandred);
+  line-height: 1.25;
+  letter-spacing: .2px;
+}
+.lhx__ln { font-size: 12.5px; line-height: 1.65; color: var(--navy); font-weight: 500; }
+.lhx__ln--sm { font-size: 11.5px; }
+
+.lhx__photo {
+  width: 21mm; height: 21mm;
+  border-radius: 50%;
+  border: .5mm solid #c9ccd2;
+  background: #eef0f3 no-repeat center / cover;
+  display: flex; align-items: center; justify-content: center;
+}
+.lhx__logo {
+  width: 22mm; height: 20mm;
+  background: no-repeat center / contain;
+  display: flex; align-items: center; justify-content: center;
+}
+
+.slot {
+  font-size: 9px; color: #98a0ab; text-align: center; line-height: 1.3;
+  border: .4mm dashed #c2c8d0; border-radius: 2mm;
+  width: 100%; height: 100%;
+  display: flex; align-items: center; justify-content: center;
+}
+.lhx__photo .slot { border-radius: 50%; border: 0; }
+
+/* tricolour rules under the letterhead: a saffron/green pair sitting
+   close together, then a clear gap, then the heavier navy rule */
+.rules { flex: 0 0 auto; margin-top: 2mm; }
+.rules i { display: block; }
+.rules .r1 { height: .9mm;  background: var(--saffron); }
+.rules .r2 { height: .7mm;  background: transparent; }
+.rules .r3 { height: .9mm;  background: var(--green); }
+.rules .r4 { height: 1.9mm; background: transparent; }
+.rules .r5 { height: 1.1mm; background: var(--navy); }
+
+/* ── क्रमांक / दिनांक ─────────────────────────────────────────── */
+.meta {
+  flex: 0 0 auto;
+  display: flex;
+  justify-content: space-between;
+  gap: 8mm;
+  margin-top: 5mm;
+  font-size: .95em;
+}
+.meta .val { border-bottom: .25mm dotted #6b7280; padding: 0 2mm; min-width: 22mm; display: inline-block; }
+
+/* ── सेवा में / श्रीमान ───────────────────────────────────────── */
+.to { flex: 0 0 auto; margin-top: 3.5mm; }
+.to__lead { font-size: .95em; }
+.to__row { display: flex; align-items: baseline; gap: 2.5mm; margin-top: .5mm; }
+.to__lbl { flex: 0 0 auto; }
+.to__val {
+  flex: 1 1 auto;
+  font-weight: 700;
+  border-bottom: .3mm solid var(--ink);
+  padding: 0 1mm 1mm;
+  white-space: pre-line;
+}
+
+/* ── विषय ────────────────────────────────────────────────────── */
+.subj { flex: 0 0 auto; margin-top: 3.5mm; font-weight: 700; }
+.subj .k { font-weight: 400; }
+
+/* ── body ────────────────────────────────────────────────────────
+   flex-grow pushes the signature block down to the foot of the sheet,
+   where it sits on the paper letter. flex-shrink stays 0 so an
+   over-long letter genuinely overflows and the paginator can see it. */
+.body { flex: 1 0 auto; margin-top: 4.5mm; }
+.blk { margin: 0; }
+/* leftover height is fed back in here as padding, so a short letter
+   breathes instead of leaving one dead slab above the signature.
+   Padding, not margin, so it simply adds to the rules below. */
+.blk + .blk { padding-top: var(--blk-gap, 0px); }
+.blk--p { text-indent: 10mm; text-align: justify; text-justify: inter-word; }
+.blk--p + .blk--p { margin-top: 1.5mm; }
+
+.blk--li {
+  display: flex;
+  align-items: flex-start;
+  gap: 3mm;
+  margin-left: 14mm;
+  margin-top: .8mm;
+}
+.blk--li .num {
+  flex: 0 0 auto;
+  min-width: 6mm; height: 6mm;
+  padding: 0 1mm;                 /* 10+ becomes a pill rather than spilling */
+  margin-top: .9mm;
+  border: .3mm solid var(--ink);
+  border-radius: 3mm;
+  display: flex; align-items: center; justify-content: center;
+  font-size: .78em;
+  line-height: 1;
+}
+.blk--li .txt { flex: 1 1 auto; }
+.blk--p + .blk--li { margin-top: 2.5mm; }
+.blk--li + .blk--p { margin-top: 3mm; }
+
+/* ── foot: signature (right) + सूचनार्थ प्रेषित (left) ─────────
+   Both sit in one grid row, as on the paper letter: the designation
+   block on the right, the CC list starting level with "अध्यक्ष".   */
+.foot {
+  flex: 0 0 auto;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: start;
+  column-gap: 6mm;
+  margin-top: 4mm;
+  font-size: .93em;
+}
+.sign { grid-column: 2; grid-row: 1; text-align: center; line-height: 1.5; }
+.sign__space { height: 20mm; }
+.sign__t1 { font-weight: 700; }
+.sign__t2, .sign__t3 { font-size: .93em; color: var(--ink-soft); }
+
+.cc {
+  grid-column: 1; grid-row: 1;
+  padding-top: 21mm;              /* aligns with the अध्यक्ष line opposite */
+  line-height: 1.6;
+}
+.cc__hd { text-decoration: underline; text-underline-offset: 2px; }
+.cc__li { padding-left: 3mm; }
+.cc__li::before { content: '– '; }
+
+/* ── continuation pages ──────────────────────────────────────── */
+.conthead {
+  flex: 0 0 auto;
+  display: flex; justify-content: space-between; align-items: baseline;
+  padding-bottom: 2mm;
+  border-bottom: .3mm solid var(--navy);
+  font-size: .85em;
+  color: var(--ink-soft);
+}
+.conthead b { color: var(--brandred); font-size: 1.15em; }
+.page--cont .body { margin-top: 6mm; }
+
+/* ═══════════════ PRINT — the sharp vector path ═══════════════ */
+@media print {
+  @page { size: A4 portrait; margin: 0; }
+  html, body { margin: 0; padding: 0; background: #fff; }
+  body > *:not(#main) { display: none !important; }
+  #main, #tab-view { display: block !important; position: static !important; inset: auto !important; }
+  #main > *:not(#tab-view) { display: none !important; }
+  .stagewrap { overflow: visible !important; padding: 0 !important; background: #fff !important; }
+  .stage { transform: none !important; width: auto !important; height: auto !important; }
+  .viewbar { display: none !important; }
+  .page { margin: 0 !important; box-shadow: none !important; break-after: page; }
+  .page:last-child { break-after: auto; }
+}
