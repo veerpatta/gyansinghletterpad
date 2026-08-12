@@ -166,6 +166,11 @@
    Padding, not margin, so it simply adds to the rules below. */
 .blk + .blk { padding-top: var(--blk-gap, 0px); }
 .blk--p { text-indent: 10mm; text-align: justify; text-justify: inter-word; }
+/* English official correspondence is block style — no first-line indent,
+   and a little more air between paragraphs to compensate */
+.page--en .blk--p { text-indent: 0; }
+.page--en .blk--p + .blk--p { margin-top: 3mm; }
+.page--en { line-height: 1.7; }
 .blk--p + .blk--p { margin-top: 1.5mm; }
 
 .blk--li {

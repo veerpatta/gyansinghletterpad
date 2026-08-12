@@ -58,7 +58,8 @@ export function toActions(transcript, dictPairs = []) {
 
 export class Voice {
   /**
-   * @param {{onActions:Function, onInterim:Function, onState:Function, getDict:Function}} h
+   * @param {{onActions:Function, onInterim:Function, onState:Function,
+   *          getDict:Function, getLang:Function}} h
    */
   constructor(h) {
     this.h = h;
@@ -84,18 +85,21 @@ export class Voice {
     } catch { /* the screen dimming mid-letter is a nuisance, not a failure */ }
   }
 
-  stop(reason = '') {
+  /** @param reasonKey an i18n key, so the message follows the app language */
+  stop(reasonKey = '') {
     this.want = false;
     if (this.rec) { try { this.rec.onend = null; this.rec.stop(); } catch {} this.rec = null; }
     if (this.lock) { try { this.lock.release(); } catch {} this.lock = null; }
     this.h.onInterim('');
-    this.h.onState('idle', reason);
+    this.h.onState('idle', reasonKey);
   }
 
   #spin() {
     const rec = new SR();
     this.rec = rec;
-    rec.lang = 'hi-IN';
+    // Indian English rather than en-US: the recogniser handles local names
+    // and place names far better, and it is what the speaker actually speaks.
+    rec.lang = this.h.getLang() === 'en' ? 'en-IN' : 'hi-IN';
     rec.continuous = true;
     rec.interimResults = true;
     rec.maxAlternatives = 1;
@@ -122,11 +126,11 @@ export class Voice {
     rec.onerror = e => {
       const err = e.error;
       if (err === 'not-allowed' || err === 'service-not-allowed') {
-        this.stop('माइक की अनुमति नहीं मिली');
+        this.stop('mic.noPerm');
       } else if (err === 'audio-capture') {
-        this.stop('माइक नहीं मिला');
+        this.stop('mic.noMic');
       } else if (err === 'network') {
-        this.stop('इंटरनेट नहीं — कीबोर्ड के 🎤 से बोलें');
+        this.stop('mic.noNet');
       }
       // 'no-speech' and 'aborted' are routine; onend restarts us
     };
@@ -138,7 +142,7 @@ export class Voice {
       const now = Date.now();
       this.restarts = now - this.restartAt < 1200 ? this.restarts + 1 : 0;
       this.restartAt = now;
-      if (this.restarts > 6) { this.stop('माइक बार‑बार रुक रहा है'); return; }
+      if (this.restarts > 6) { this.stop('mic.flap'); return; }
       setTimeout(() => { if (this.want) this.#spin(); }, 260);
     };
 

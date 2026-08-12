@@ -11,30 +11,36 @@ import { shortDate, nextKramank } from './format.js';
 const KEY = 'gsl.v1';
 export const VERSION = '1.0.0';
 
-const blank = () => ({
+const blank = (lang = 'hi') => ({
   id: 'L' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+  lang,                                  // language of the LETTER, not the app
   kramank: '',
   dinank: shortDate(),
   to: '',
   subject: '',
   showSubject: false,
   body: '',
-  cc: CC_DEFAULT,
+  cc: CC_DEFAULT[lang],
   showCc: true,
   fit: true,
   createdAt: Date.now(),
   updatedAt: Date.now(),
 });
 
+/* The address book and correction dictionary are per letter language —
+   an English letter should not be offered Devanagari recipients. */
 const defaults = () => ({
   letters: [],
   openId: null,
   settings: {
+    ui: 'hi',                            // language of the APP CHROME
+    lastLetterLang: 'hi',
     hiQ: true,
     devDigits: false,
     headerH: 42,
-    book: BOOK.join('\n'),
-    dict: DICT_SEED,
+    seenTour: false,
+    book: { hi: BOOK.hi.join('\n'), en: BOOK.en.join('\n') },
+    dict: { hi: DICT_SEED.hi, en: DICT_SEED.en },
   },
 });
 
@@ -50,6 +56,7 @@ export function load() {
       state.letters = Array.isArray(d.letters) ? d.letters : [];
       state.openId = d.openId || null;
       Object.assign(state.settings, d.settings || {});
+      migrate();
     }
   } catch (e) {
     console.warn('[store] load failed, starting fresh', e);
@@ -80,14 +87,41 @@ export function current() {
   return state.letters.find(l => l.id === state.openId) || null;
 }
 
-export function newLetter(push = true) {
-  const l = blank();
+/**
+ * Letters written before the bilingual release have no `lang`, and the
+ * address book / dictionary were plain strings rather than per-language
+ * maps. Bring both forward rather than dropping the user's data.
+ */
+function migrate() {
+  const s = state.settings;
+  for (const key of ['book', 'dict']) {
+    if (typeof s[key] === 'string') s[key] = { hi: s[key], en: defaults().settings[key].en };
+  }
+  for (const l of state.letters) if (!l.lang) l.lang = 'hi';
+}
+
+export function newLetter(push = true, lang = state.settings.lastLetterLang || 'hi') {
+  const l = blank(lang);
   l.kramank = nextKramank(state.letters.map(x => x.kramank));
   if (push) {
     state.letters.unshift(l);
     state.openId = l.id;
     save();
   }
+  return l;
+}
+
+/** "Same as last time" — the commonest real-world way to start a letter. */
+export function duplicateLetter(id) {
+  const src = state.letters.find(l => l.id === id);
+  if (!src) return null;
+  const l = { ...src, ...blank(src.lang), to: src.to, subject: src.subject,
+              showSubject: src.showSubject, body: src.body, cc: src.cc,
+              showCc: src.showCc, fit: src.fit };
+  l.kramank = nextKramank(state.letters.map(x => x.kramank));
+  state.letters.unshift(l);
+  state.openId = l.id;
+  save();
   return l;
 }
 

@@ -4,13 +4,13 @@
    with no signal at all. Bump CACHE on every release.
    ═══════════════════════════════════════════════════════════════ */
 
-const CACHE = 'gsl-v2';
+const CACHE = 'gsl-v3';
 
 const SHELL = [
   '.', 'index.html', 'manifest.webmanifest',
   'css/app.css', 'css/page.css',
   'js/app.js', 'js/store.js', 'js/render.js', 'js/pdf.js',
-  'js/voice.js', 'js/format.js', 'js/templates.js',
+  'js/voice.js', 'js/format.js', 'js/templates.js', 'js/i18n.js',
   'vendor/html2canvas.min.js', 'vendor/jspdf.umd.min.js',
   'fonts/NotoSansDevanagari-dev.woff2', 'fonts/NotoSansDevanagari-latin.woff2',
   'assets/icon-192.png', 'assets/icon-512.png',

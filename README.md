@@ -1,8 +1,8 @@
 # लेटरपैड — ब्लॉक कांग्रेस कमेटी आमेट
 
-बोलकर हिन्दी में पत्र लिखें, और एक टैप में लेटरहेड सहित A4 PDF बनाएँ।
+बोलकर हिन्दी **या अंग्रेज़ी** में पत्र लिखें, और एक टैप में लेटरहेड सहित A4 PDF बनाएँ।
 
-Voice-dictated Hindi letters on the official letterhead of
+Voice-dictated letters — **Hindi or English** — on the official letterhead of
 **ज्ञानेन्द्रसिंह चुण्डावत**, अध्यक्ष ब्लॉक कांग्रेस कमेटी आमेट, जिला राजसमन्द (313332),
 rendered to a shareable A4 PDF.
 
@@ -51,6 +51,44 @@ Phone-first. No account, no server, no cost. Everything stays on the device.
 `.jpg` और `.png` दोनों चलते हैं।
 
 ---
+
+## Two languages, deliberately separate
+
+| | Where it lives | Changes how often |
+|---|---|---|
+| **App language** — buttons, tabs, messages | Settings → ऐप की भाषा | Set once |
+| **Letter language** — the letter itself | segmented control at the top of लिखें | Per letter |
+
+Merging them into a single switch would mean a Hindi speaker has to read an
+English interface just to send one English letter. Keeping them apart means the
+common real case — Hindi interface, occasional English letter to a Collector or
+a bank — costs one tap and nothing else.
+
+The **letter language** drives the letter's furniture (`Ref. No. :` vs
+`क्रमांक :-`, `To,` vs `सेवा में,`, `Copy to` vs `सूचनार्थ प्रेषित`,
+`President` vs `अध्यक्ष`), the paragraph style (English official correspondence
+is block style — no first-line indent), the templates and snippet chips, the
+address book, the correction dictionary, the spoken commands, the sentence
+terminator the mic inserts (`.` vs `।`), and the speech recogniser locale
+(`en-IN` / `hi-IN` — Indian English, which handles local names far better than
+`en-US`).
+
+The **masthead stays Hindi in both**, because the printed pad is Hindi.
+
+## Built for someone who does not use computers
+
+- **First-run tour** — three cards, starting with the language choice, then how
+  to dictate and how to send. Never shown again.
+- **Voice command help** — a `?` on the mic bar lists every spoken command in
+  the letter's language. Users do not discover these otherwise.
+- **Undo** — a visible ↶ button. Phones have no Ctrl+Z, and dictation does go
+  wrong.
+- **Duplicate a letter** — ⧉ in the history list. "Same as last time" is how
+  these letters actually get written.
+- **Install prompt** — a one-tap *फ़ोन में लगाएँ* button when the browser
+  offers it, instead of hunting through the ⋮ menu.
+- Destructive actions confirm; every message is plain language, never an error
+  code; advanced settings stay folded away in one sheet.
 
 ## Design notes
 
@@ -102,7 +140,8 @@ localStorage would blow the 5 MB quota and take the letters down with it.
 index.html              single page, 3 tabs, no router
 css/page.css            the A4 letter — screen preview, PDF capture and @media print
 css/app.css             the phone UI
-js/render.js            model → pages, auto-fit, pagination
+js/i18n.js              app-chrome strings (hi/en), applied via data-i18n
+js/render.js            model → pages, auto-fit, pagination, letter labels
 js/pdf.js               capture → jsPDF → download / Web Share
 js/voice.js             SpeechRecognition + spoken commands
 js/format.js            text tidy, digits, dates, blocks   (pure, no DOM)

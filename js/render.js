@@ -9,17 +9,38 @@
 
 import { parseBlocks, splitLines, sentences, digits } from './format.js';
 
-/** The one place the letterhead identity is spelled out. */
+/** The one place the letterhead identity is spelled out.
+ *  The printed pad is Hindi, so the masthead stays Hindi in both languages —
+ *  only the letter's own furniture (labels, sign-off, CC) switches. */
 export const OWNER = {
   name: 'ज्ञानेन्द्रसिंह चुण्डावत',
   role: 'अध्यक्ष ब्लॉक कांग्रेस कमेटी आमेट',
   place: 'जिला राजसमन्द (राज.) 313332',
   phone: 'मो. 8107933963',
   email: 'e-mail : gyansingh441@gmail.com',
-  signRole: 'अध्यक्ष',
-  signOrg: 'ब्लॉक कांग्रेस कमेटी आमेट',
-  signPlace: 'जिला राजसमन्द (313332)',
 };
+
+/** Letter furniture, per letter language. */
+export const LBL = {
+  hi: {
+    ref: 'क्रमांक :-', date: 'दिनांक :-',
+    toLead: 'सेवा में,', toPrefix: 'श्रीमान',
+    subject: 'विषय :-', cc: 'सूचनार्थ प्रेषित', page: 'पृष्ठ',
+    signRole: 'अध्यक्ष',
+    signOrg: 'ब्लॉक कांग्रेस कमेटी आमेट',
+    signPlace: 'जिला राजसमन्द (313332)',
+  },
+  en: {
+    ref: 'Ref. No. :', date: 'Date :',
+    toLead: 'To,', toPrefix: '',
+    subject: 'Subject :', cc: 'Copy to', page: 'Page',
+    signRole: 'President',
+    signOrg: 'Block Congress Committee, Amet',
+    signPlace: 'District Rajsamand (313332)',
+  },
+};
+
+const lbl = o => LBL[o.lang === 'en' ? 'en' : 'hi'];
 
 /* Auto-fit picks the LARGEST size that still fits one sheet, so a short
    letter grows to fill the page the way the handwritten original does,
@@ -77,27 +98,29 @@ function letterhead(o) {
 /* ── page scaffolds ─────────────────────────────────────────── */
 
 function firstPage(L, o) {
-  const page = el('div', 'page');
+  const T = lbl(o);
+  const page = el('div', 'page' + (o.lang === 'en' ? ' page--en' : ''));
   page.append(...letterhead(o));
 
   const meta = el('div', 'meta');
   const k = el('div');
-  k.append(el('span', null, 'क्रमांक :- '), el('span', 'val', digits(L.kramank || ' ', o.devDigits)));
+  k.append(el('span', null, T.ref + ' '), el('span', 'val', digits(L.kramank || ' ', o.devDigits)));
   const d = el('div');
-  d.append(el('span', null, 'दिनांक :- '), el('span', 'val', digits(L.dinank || ' ', o.devDigits)));
+  d.append(el('span', null, T.date + ' '), el('span', 'val', digits(L.dinank || ' ', o.devDigits)));
   meta.append(k, d);
   page.append(meta);
 
   const to = el('div', 'to');
-  to.append(el('div', 'to__lead', 'सेवा में,'));
+  to.append(el('div', 'to__lead', T.toLead));
   const row = el('div', 'to__row');
-  row.append(el('span', 'to__lbl', 'श्रीमान'), el('span', 'to__val', L.to || ' '));
+  if (T.toPrefix) row.append(el('span', 'to__lbl', T.toPrefix));
+  row.append(el('span', 'to__val', L.to || ' '));
   to.append(row);
   page.append(to);
 
   if (L.showSubject && L.subject.trim()) {
     const s = el('div', 'subj');
-    s.append(el('span', 'k', 'विषय :- '), el('span', null, L.subject.trim()));
+    s.append(el('span', 'k', T.subject + ' '), el('span', null, L.subject.trim()));
     page.append(s);
   }
 
@@ -108,11 +131,12 @@ function firstPage(L, o) {
 }
 
 function contPage(n, o) {
-  const page = el('div', 'page page--cont');
+  const T = lbl(o);
+  const page = el('div', 'page page--cont' + (o.lang === 'en' ? ' page--en' : ''));
   const h = el('div', 'conthead');
   const who = el('div');
-  who.append(el('b', null, OWNER.name), document.createTextNode(' — ' + OWNER.signRole));
-  h.append(who, el('div', null, 'पृष्ठ ' + digits(String(n), o.devDigits)));
+  who.append(el('b', null, OWNER.name), document.createTextNode(' — ' + T.signRole));
+  h.append(who, el('div', null, T.page + ' ' + digits(String(n), o.devDigits)));
   const body = el('div', 'body');
   body.append(el('div', 'bodyin'));
   page.append(h, body);
@@ -130,22 +154,23 @@ function blockNode(b, o) {
   return el('p', 'blk blk--p', b.text);
 }
 
-function footNode(L) {
+function footNode(L, o) {
+  const T = lbl(o);
   const foot = el('div', 'foot');
 
   const sign = el('div', 'sign');
   sign.append(
     el('div', 'sign__space'),
-    el('div', 'sign__t1', OWNER.signRole),
-    el('div', 'sign__t2', OWNER.signOrg),
-    el('div', 'sign__t3', OWNER.signPlace),
+    el('div', 'sign__t1', T.signRole),
+    el('div', 'sign__t2', T.signOrg),
+    el('div', 'sign__t3', T.signPlace),
   );
   foot.append(sign);
 
   const lines = L.showCc ? splitLines(L.cc) : [];
   if (lines.length) {
     const cc = el('div', 'cc');
-    cc.append(el('div', 'cc__hd', 'सूचनार्थ प्रेषित'));
+    cc.append(el('div', 'cc__hd', T.cc));
     for (const t of lines) cc.append(el('div', 'cc__li', t));
     foot.append(cc);
   }
@@ -167,7 +192,7 @@ function tryOnePage(host, L, o, size) {
   const page = firstPage(L, o);
   const body = bodyOf(page);
   for (const b of o.blocks) body.append(blockNode(b, o));
-  page.append(footNode(L));
+  page.append(footNode(L, o));
   host.replaceChildren(page);
   if (overflows(page)) return null;
   relax(host, page, o.blocks.length);
@@ -241,7 +266,7 @@ function paginate(host, L, o) {
     body.append(node);
   }
 
-  const foot = footNode(L);
+  const foot = footNode(L, o);
   page.append(foot);
   if (overflows(page)) { foot.remove(); nextPage(); page.append(foot); }
 

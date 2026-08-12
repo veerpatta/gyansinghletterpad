@@ -1,22 +1,25 @@
 /* ═══════════════════════════════════════════════════════════════
    app.js — bootstrap and glue.
+
+   Two independent languages: the APP language (settings.ui, chosen once)
+   and the LETTER language (letter.lang, chosen per letter). See i18n.js.
    ═══════════════════════════════════════════════════════════════ */
 
 import { state, load, save, current, newLetter, openLetter, removeLetter,
-         touch, isEmpty, exportJSON, importJSON, assets, VERSION } from './store.js';
+         duplicateLetter, touch, isEmpty, exportJSON, importJSON, assets,
+         VERSION } from './store.js';
 import { layout, mirror } from './render.js';
 import * as PDF from './pdf.js';
 import { Voice, supported as voiceOK } from './voice.js';
 import { parseDict, splitLines, preview, shortDate, BULLET } from './format.js';
-import { SNIPPETS, TEMPLATES } from './templates.js';
+import { SNIPPETS, TEMPLATES, VOICE_HELP, CC_DEFAULT } from './templates.js';
+import { t, setUILang, applyI18n, uiLang } from './i18n.js';
 
 const $ = s => document.querySelector(s);
 const $$ = s => [...document.querySelectorAll(s)];
 
-const capture = $('#capture');
-const sheet = $('#sheet');
-const stage = $('#stage');
-const stagewrap = $('#stagewrap');
+const capture = $('#capture'), sheet = $('#sheet');
+const stage = $('#stage'), stagewrap = $('#stagewrap');
 
 const F = {
   kramank: $('#fKramank'), dinank: $('#fDinank'), to: $('#fTo'),
@@ -28,42 +31,44 @@ const TEXTAREAS = [F.to, F.subject, F.body, F.cc];
 let headerSrc = null, photoSrc = null, logoSrc = null;
 let target = F.body;
 
+/** Language of the letter being edited (not of the interface). */
+const LL = () => current()?.lang || 'hi';
+
 /* ── small helpers ──────────────────────────────────────────── */
 
 let toastT = 0;
 function toast(msg) {
-  const t = $('#toast');
-  t.textContent = msg;
-  t.classList.add('is-on');
+  const el = $('#toast');
+  el.textContent = msg;
+  el.classList.add('is-on');
   clearTimeout(toastT);
-  toastT = setTimeout(() => t.classList.remove('is-on'), 2600);
+  toastT = setTimeout(() => el.classList.remove('is-on'), 2600);
 }
-const busy = (on, txt = 'बन रहा है…') => { $('#busyTxt').textContent = txt; $('#busy').hidden = !on; };
+const busy = (on, key = 'busy.pdf') => { $('#busyTxt').textContent = t(key); $('#busy').hidden = !on; };
 const probe = src => new Promise(r => { const i = new Image(); i.onload = () => r(src); i.onerror = () => r(null); i.src = src; });
 
-/** First of these that actually exists wins — so a replacement asset can be
- *  dropped in as either .jpg or .png without touching any code. */
+/** First of these that exists wins, so a replacement asset can be dropped
+ *  in as either .jpg or .png without touching any code. */
 async function probeAny(list) {
   for (const src of list) { const hit = await probe(src); if (hit) return hit; }
   return null;
 }
 
-function grow(t) { t.style.height = 'auto'; t.style.height = t.scrollHeight + 'px'; }
-function fire(t) { t.dispatchEvent(new Event('input', { bubbles: true })); }
-
-/* ── options handed to the renderer ─────────────────────────── */
+function grow(el) { el.style.height = 'auto'; el.style.height = el.scrollHeight + 'px'; }
+function fire(el) { el.dispatchEvent(new Event('input', { bubbles: true })); }
 
 const opts = () => ({
   headerSrc, photoSrc, logoSrc,
   headerH: state.settings.headerH,
   devDigits: state.settings.devDigits,
   hiQ: state.settings.hiQ,
+  lang: LL(),
 });
 
 /* ── preview ────────────────────────────────────────────────── */
 
 let renderT = 0;
-function schedule() { clearTimeout(renderT); renderT = setTimeout(draw, 180); }
+const schedule = () => { clearTimeout(renderT); renderT = setTimeout(draw, 180); };
 
 function draw() {
   clearTimeout(renderT);
@@ -71,19 +76,17 @@ function draw() {
   if (!L) return;
   const { pages } = layout(capture, L, opts());
   mirror(capture, sheet);
-  $('#pagePill').textContent = pages.length > 1 ? `${pages.length} पेज` : 'पेज 1';
+  $('#pagePill').textContent = pages.length > 1 ? t('page.n', { n: pages.length }) : t('page.one');
   fitStage();
 }
 
 function fitStage() {
   const page = sheet.firstElementChild;
   if (!page) return;
-  const avail = stagewrap.clientWidth - 20;
-  const pw = page.offsetWidth, ph = sheet.offsetHeight;
-  const s = Math.min(1, avail / pw);
+  const s = Math.min(1, (stagewrap.clientWidth - 20) / page.offsetWidth);
   stage.style.transform = `scale(${s})`;
-  stage.style.width = pw * s + 'px';
-  stage.style.height = ph * s + 'px';
+  stage.style.width = page.offsetWidth * s + 'px';
+  stage.style.height = sheet.offsetHeight * s + 'px';
 }
 
 /* ── form ⇄ model ───────────────────────────────────────────── */
@@ -100,88 +103,129 @@ function fillForm() {
   F.showCc.checked = L.showCc;
   F.fit.checked = L.fit;
   $('#subjectCard').hidden = !L.showSubject;
-  $('#btnSubject').textContent = L.showSubject ? 'विषय हटाएँ' : 'विषय जोड़ें';
+  $('#btnSubject').textContent = t(L.showSubject ? 'btn.rmSubject' : 'btn.addSubject');
+  $$('#segLang .seg__b').forEach(b => b.classList.toggle('is-on', b.dataset.lang === L.lang));
+  $('#micTarget').textContent = targetName();   // follows the app language too
   TEXTAREAS.forEach(grow);
-  $('#topTitle').textContent = L.to.trim() || 'नया पत्र';
-  $('#topSub').textContent = `क्रमांक ${L.kramank || '—'} · ${L.dinank}`;
+  buildChips();
+  head();
   draw();
 }
 
-function bind(input, key, prop = 'value') {
+function head() {
+  const L = current();
+  $('#topTitle').textContent = L.to.trim() || t('letter.new');
+  $('#topSub').textContent = `${t('field.ref')} ${L.kramank || '—'} · ${L.dinank}`;
+}
+
+function bind(input, key) {
   input.addEventListener('input', () => {
     const L = current();
     if (!L) return;
-    L[key] = input[prop];
+    L[key] = input.value;
     if (input.tagName === 'TEXTAREA') grow(input);
-    if (key === 'to') $('#topTitle').textContent = input.value.trim() || 'नया पत्र';
-    if (key === 'kramank' || key === 'dinank') {
-      $('#topSub').textContent = `क्रमांक ${L.kramank || '—'} · ${L.dinank}`;
-    }
+    if (key === 'body') pushUndo(input.value);
+    if (key === 'to' || key === 'kramank' || key === 'dinank') head();
     touch();
     schedule();
   });
 }
-
 bind(F.kramank, 'kramank'); bind(F.dinank, 'dinank');
 bind(F.to, 'to'); bind(F.subject, 'subject');
 bind(F.body, 'body'); bind(F.cc, 'cc');
 F.showCc.addEventListener('change', () => { current().showCc = F.showCc.checked; touch(); schedule(); });
 F.fit.addEventListener('change', () => { current().fit = F.fit.checked; touch(); schedule(); });
 
-/* ── the voice target ───────────────────────────────────────── */
+/* ── letter language ────────────────────────────────────────── */
 
-const LABEL = new Map([[F.to, 'सेवा में'], [F.subject, 'विषय'], [F.body, 'मुख्य भाग'], [F.cc, 'सूचनार्थ']]);
+$$('#segLang .seg__b').forEach(b => b.addEventListener('click', () => {
+  const L = current(), lang = b.dataset.lang;
+  if (L.lang === lang) return;
+  // only swap the boilerplate the user has not touched
+  if (L.cc === CC_DEFAULT[L.lang]) L.cc = CC_DEFAULT[lang];
+  L.lang = lang;
+  state.settings.lastLetterLang = lang;
+  touch(); save();
+  fillForm();
+  toast(lang === 'en' ? 'Letter language: English' : 'पत्र की भाषा: हिन्दी');
+}));
 
-function setTarget(t) {
-  target = t;
-  TEXTAREAS.forEach(x => x.classList.toggle('is-target', x === t));
-  $('#micTarget').textContent = LABEL.get(t) || '';
+/* ── voice target ───────────────────────────────────────────── */
+
+const LKEY = new Map([[F.to, 'field.to'], [F.subject, 'field.subject'],
+                      [F.body, 'field.body'], [F.cc, 'field.cc']]);
+const targetName = () => t(LKEY.get(target) || 'field.body');
+
+function setTarget(el) {
+  target = el;
+  TEXTAREAS.forEach(x => x.classList.toggle('is-target', x === el));
+  $('#micTarget').textContent = targetName();
 }
-TEXTAREAS.forEach(t => t.addEventListener('focus', () => setTarget(t)));
+TEXTAREAS.forEach(el => el.addEventListener('focus', () => setTarget(el)));
 
-/* ── inserting text at the cursor ───────────────────────────── */
+/* ── undo (mobile has no Ctrl+Z, and dictation does go wrong) ── */
+
+let undoStack = [], undoT = 0, undoLock = false;
+function pushUndo(v) {
+  if (undoLock) return;
+  clearTimeout(undoT);
+  undoT = setTimeout(() => {
+    if (undoStack[undoStack.length - 1] === v) return;
+    undoStack.push(v);
+    if (undoStack.length > 40) undoStack.shift();
+  }, 500);
+}
+$('#btnUndo').addEventListener('click', () => {
+  clearTimeout(undoT);
+  if (undoStack.length < 2) { toast(t('toast.nothingUndo')); return; }
+  undoStack.pop();                       // the current value
+  const prev = undoStack[undoStack.length - 1];
+  undoLock = true;
+  F.body.value = prev;
+  fire(F.body);
+  undoLock = false;
+  toast(t('toast.undone'));
+});
+
+/* ── inserting at the cursor ────────────────────────────────── */
 
 function insert(str, { atLineStart = false, eatSpace = false } = {}) {
-  const t = target;
-  const s = t.selectionStart ?? t.value.length;
-  const e = t.selectionEnd ?? s;
-  let left = t.value.slice(0, s);
-  const right = t.value.slice(e);
-
+  const el = target;
+  const s = el.selectionStart ?? el.value.length;
+  const e = el.selectionEnd ?? s;
+  let left = el.value.slice(0, s);
+  const right = el.value.slice(e);
   if (eatSpace) left = left.replace(/[ \t]+$/, '');
   if (atLineStart && left && !left.endsWith('\n')) str = '\n' + str;
-
-  t.value = left + str + right;
-  const p = (left + str).length;
-  t.selectionStart = t.selectionEnd = p;
-  t.focus();
-  fire(t);
+  el.value = left + str + right;
+  el.selectionStart = el.selectionEnd = (left + str).length;
+  el.focus();
+  fire(el);
 }
 
-/** Spoken text needs a separating space unless we're at a fresh start. */
 function insertText(v) {
-  const t = target;
-  const s = t.selectionStart ?? t.value.length;
-  const left = t.value.slice(0, s);
+  const el = target;
+  const left = el.value.slice(0, el.selectionStart ?? el.value.length);
   insert((!left || /[\s\n•(]$/.test(left) ? '' : ' ') + v);
 }
 
 function delSentence() {
-  const t = target;
-  const s = t.selectionStart ?? t.value.length;
-  const left = t.value.slice(0, s).replace(/\s+$/, '');
-  const m = left.match(/[।?!\n][^।?!\n]*$/);
+  const el = target;
+  const s = el.selectionStart ?? el.value.length;
+  const left = el.value.slice(0, s).replace(/\s+$/, '');
+  const m = left.match(/[।.?!\n][^।.?!\n]*$/);
   const cut = m ? left.length - m[0].length + 1 : 0;
-  t.value = t.value.slice(0, cut) + t.value.slice(s);
-  t.selectionStart = t.selectionEnd = cut;
-  fire(t);
+  el.value = el.value.slice(0, cut) + el.value.slice(s);
+  el.selectionStart = el.selectionEnd = cut;
+  fire(el);
 }
 
 const ACT = {
   text:  a => insertText(a.v),
   para:  () => insert('\n\n'),
   li:    () => insert(BULLET, { atLineStart: true }),
-  danda: () => insert('। ', { eatSpace: true }),
+  // the Hindi danda has no place in an English letter
+  danda: () => insert(LL() === 'en' ? '. ' : '। ', { eatSpace: true }),
   comma: () => insert(', ', { eatSpace: true }),
   qm:    () => insert('? ', { eatSpace: true }),
   del:   () => delSentence(),
@@ -191,23 +235,34 @@ const ACT = {
 
 const micbar = $('#micbar');
 const voice = new Voice({
-  getDict: () => parseDict(state.settings.dict),
+  getDict: () => parseDict(state.settings.dict[LL()]),
+  getLang: () => LL(),
   onActions: acts => { for (const a of acts) ACT[a.t]?.(a); },
-  onInterim: txt => { $('#micTarget').textContent = txt || LABEL.get(target) || ''; },
-  onState: (s, reason) => {
+  onInterim: txt => { $('#micTarget').textContent = txt || targetName(); },
+  onState: (s, reasonKey) => {
     micbar.classList.toggle('is-live', s === 'live');
-    $('#micState').textContent = s === 'live' ? 'सुन रहा हूँ… (रोकने के लिए दबाएँ)' : 'बोलकर लिखें';
-    $('#micTarget').textContent = LABEL.get(target) || '';
-    if (reason) toast(reason);
+    $('#micState').textContent = t(s === 'live' ? 'mic.live' : 'mic.idle');
+    $('#micTarget').textContent = targetName();
+    if (reasonKey) toast(t(reasonKey));
   },
 });
 
 if (voiceOK) {
   $('#btnMic').addEventListener('click', () => voice.toggle());
 } else {
-  micbar.hidden = true;
-  F.body.placeholder = 'यहाँ पत्र लिखें — कीबोर्ड के 🎤 बटन से बोलकर भी लिख सकते हैं।';
+  $('#btnMic').hidden = true;
+  $('#micState').textContent = '';
 }
+
+$('#btnVoiceHelp').addEventListener('click', () => {
+  $('#cmdTbl').replaceChildren(...VOICE_HELP[LL()].map(([say, does]) => {
+    const tr = document.createElement('tr');
+    tr.append(Object.assign(document.createElement('td'), { textContent: '“' + say + '”' }),
+              Object.assign(document.createElement('td'), { textContent: does }));
+    return tr;
+  }));
+  $('#dlgVoice').showModal();
+});
 
 /* ── editor buttons & chips ─────────────────────────────────── */
 
@@ -223,28 +278,25 @@ $('#btnSubject').addEventListener('click', () => {
   if (L.showSubject) F.subject.focus();
 });
 
-function buildChips() {
-  const snip = $('#snipChips');
-  snip.replaceChildren(...SNIPPETS.map(s => {
-    const b = document.createElement('button');
-    b.type = 'button'; b.className = 'chip'; b.textContent = s;
-    b.addEventListener('click', () => { setTarget(F.body); insertText(s); });
-    return b;
-  }));
+function chip(text, onTap) {
+  const b = document.createElement('button');
+  b.type = 'button'; b.className = 'chip'; b.textContent = text;
+  b.addEventListener('click', onTap);
+  return b;
+}
 
-  const book = $('#bookChips');
-  book.replaceChildren(...splitLines(state.settings.book).map(s => {
-    const b = document.createElement('button');
-    b.type = 'button'; b.className = 'chip'; b.textContent = s;
-    b.addEventListener('click', () => { F.to.value = s; fire(F.to); });
-    return b;
-  }));
+function buildChips() {
+  const lang = LL();
+  $('#snipChips').replaceChildren(...SNIPPETS[lang].map(s =>
+    chip(s, () => { setTarget(F.body); insertText(s); })));
+  $('#bookChips').replaceChildren(...splitLines(state.settings.book[lang]).map(s =>
+    chip(s, () => { F.to.value = s; fire(F.to); })));
 }
 
 /* ── tabs ───────────────────────────────────────────────────── */
 
 function go(name) {
-  $$('.tab').forEach(t => t.classList.toggle('is-active', t.id === 'tab-' + name));
+  $$('.tab').forEach(el => el.classList.toggle('is-active', el.id === 'tab-' + name));
   $$('.tabbtn').forEach(b => b.classList.toggle('is-active', b.dataset.tab === name));
   if (name === 'view') { draw(); requestAnimationFrame(fitStage); }
   if (name === 'list') drawList();
@@ -260,10 +312,12 @@ $$('.tabbtn').forEach(b => b.addEventListener('click', () => {
 function drawList() {
   const wrap = $('#letterList');
   const rows = state.letters.filter(l => !isEmpty(l) || l.id === state.openId);
-  $('#listCount').textContent = `${rows.length} पत्र`;
+  $('#listCount').textContent = t('list.count', { n: rows.length });
 
   if (!rows.length) {
-    wrap.innerHTML = '<div class="empty">अभी कोई पत्र नहीं।<br>“लिखें” में जाकर शुरू करें।</div>';
+    const d = document.createElement('div');
+    d.className = 'empty'; d.textContent = t('list.empty');
+    wrap.replaceChildren(d);
     return;
   }
 
@@ -276,23 +330,36 @@ function drawList() {
     const top = document.createElement('div');
     top.className = 'lrow__top';
     top.append(Object.assign(document.createElement('span'), { textContent: L.kramank || '—' }),
-               Object.assign(document.createElement('span'), { textContent: L.dinank }));
+               Object.assign(document.createElement('span'), { textContent: L.dinank }),
+               Object.assign(document.createElement('span'),
+                 { className: 'lrow__tag', textContent: L.lang === 'en' ? 'EN' : 'हिं' }));
     const txt = document.createElement('div');
     txt.className = 'lrow__txt';
-    txt.textContent = (L.to.trim() ? L.to.trim() + ' — ' : '') + (preview(L.body) || 'खाली पत्र');
+    txt.textContent = (L.to.trim() ? L.to.trim() + ' — ' : '') + (preview(L.body) || t('list.blank'));
     main.append(top, txt);
 
-    const del = document.createElement('button');
-    del.className = 'lrow__del'; del.textContent = '🗑'; del.setAttribute('aria-label', 'हटाएँ');
-    del.addEventListener('click', ev => {
+    const copy = document.createElement('button');
+    copy.className = 'lrow__act'; copy.textContent = '⧉';
+    copy.setAttribute('aria-label', t('list.copy'));
+    copy.addEventListener('click', ev => {
       ev.stopPropagation();
-      if (!confirm('यह पत्र हटाएँ?')) return;
-      removeLetter(L.id);
-      drawList(); fillForm();
-      toast('पत्र हटा दिया');
+      duplicateLetter(L.id);
+      fillForm(); go('write');
+      toast(t('toast.copied'));
     });
 
-    row.append(main, del);
+    const del = document.createElement('button');
+    del.className = 'lrow__act is-del'; del.textContent = '🗑';
+    del.setAttribute('aria-label', t('list.del'));
+    del.addEventListener('click', ev => {
+      ev.stopPropagation();
+      if (!confirm(t('confirm.del'))) return;
+      removeLetter(L.id);
+      drawList(); fillForm();
+      toast(t('toast.deleted'));
+    });
+
+    row.append(main, copy, del);
     row.addEventListener('click', () => { openLetter(L.id); fillForm(); go('write'); });
     return row;
   }));
@@ -301,33 +368,31 @@ function drawList() {
 /* ── new letter & templates ─────────────────────────────────── */
 
 $('#btnNew').addEventListener('click', () => {
-  if (isEmpty(current())) { toast('यह पत्र पहले से खाली है'); return; }
+  if (isEmpty(current())) { toast(t('toast.alreadyEmpty')); return; }
   newLetter();
-  fillForm();
-  go('write');
-  toast('नया पत्र — क्रमांक ' + current().kramank);
+  fillForm(); go('write');
+  toast(t('toast.newLetter', { k: current().kramank }));
 });
 
 function applyTemplate(tpl) {
   if (!isEmpty(current())) newLetter();
   const L = current();
   if (tpl.to) L.to = tpl.to;
+  if (tpl.subject) { L.subject = tpl.subject; L.showSubject = true; }
   L.body = tpl.body;
   L.dinank = shortDate();
   touch();
-  fillForm();
-  go('write');
+  fillForm(); go('write');
   F.body.focus();
 }
 
 $('#btnTemplates').addEventListener('click', () => {
-  const list = $('#tplList');
-  list.replaceChildren(...TEMPLATES.map(t => {
+  $('#tplList').replaceChildren(...TEMPLATES[LL()].map(tpl => {
     const b = document.createElement('button');
     b.type = 'button'; b.className = 'tplrow';
-    b.append(Object.assign(document.createElement('strong'), { textContent: t.name }),
-             Object.assign(document.createElement('small'), { textContent: t.desc }));
-    b.addEventListener('click', () => { $('#dlgTemplates').close(); applyTemplate(t); });
+    b.append(Object.assign(document.createElement('strong'), { textContent: tpl.name }),
+             Object.assign(document.createElement('small'), { textContent: tpl.desc }));
+    b.addEventListener('click', () => { $('#dlgTemplates').close(); applyTemplate(tpl); });
     return b;
   }));
   $('#dlgTemplates').showModal();
@@ -336,18 +401,17 @@ $('#btnTemplates').addEventListener('click', () => {
 /* ── PDF · share · print ────────────────────────────────────── */
 
 async function makePdf() {
-  const L = current();
-  if (isEmpty(L)) { toast('पहले पत्र लिखें'); return null; }
-  busy(true, 'PDF बन रहा है…');
+  if (isEmpty(current())) { toast(t('toast.writeFirst')); return null; }
+  busy(true, 'busy.pdf');
   try {
-    return await PDF.build(L, opts(), capture);
+    return await PDF.build(current(), opts(), capture);
   } catch (e) {
     console.error('[pdf]', e);
-    toast('PDF नहीं बन पाया');
+    toast(t('toast.pdfFail'));
     return null;
   } finally {
     busy(false);
-    draw();                     // the capture host is shared — restore the preview
+    draw();                       // the capture host is shared — restore preview
   }
 }
 
@@ -355,14 +419,15 @@ $('#btnPdf').addEventListener('click', async () => {
   const r = await makePdf();
   if (!r) return;
   PDF.download(r.blob, r.name);
-  toast(`${r.pages} पेज · ${r.name}`);
+  toast(t('toast.pdfDone', { n: r.pages, name: r.name }));
 });
 
 $('#btnShare').addEventListener('click', async () => {
   const r = await makePdf();
   if (!r) return;
-  const how = await PDF.share(r.blob, r.name, current().to || 'पत्र');
-  if (how === 'downloaded') toast('साझा उपलब्ध नहीं — फ़ाइल सहेज ली');
+  if (await PDF.share(r.blob, r.name, current().to || 'Patra') === 'downloaded') {
+    toast(t('toast.noShare'));
+  }
 });
 
 $('#btnPrint').addEventListener('click', () => { draw(); setTimeout(() => window.print(), 120); });
@@ -375,40 +440,47 @@ function fillSettings() {
   $('#fHiQ').checked = S.hiQ;
   $('#fDevDigits').checked = S.devDigits;
   $('#fHeaderH').value = S.headerH;
-  $('#fBook').value = S.book;
-  $('#fDict').value = S.dict;
+  $('#fBook').value = S.book[LL()];
+  $('#fDict').value = S.dict[LL()];
   $('#verLbl').textContent = 'v' + VERSION;
+  $$('#segUI .seg__b').forEach(b => b.classList.toggle('is-on', b.dataset.ui === uiLang()));
 }
 
 $('#btnSettings').addEventListener('click', () => { fillSettings(); $('#dlgSettings').showModal(); });
 
+$$('#segUI .seg__b').forEach(b => b.addEventListener('click', () => {
+  S.ui = b.dataset.ui;
+  save();
+  setUILang(S.ui);
+  fillSettings(); fillForm();
+}));
+
 $('#fHiQ').addEventListener('change', e => { S.hiQ = e.target.checked; save(); });
 $('#fDevDigits').addEventListener('change', e => { S.devDigits = e.target.checked; save(); draw(); });
 $('#fHeaderH').addEventListener('input', e => {
-  const v = Math.min(90, Math.max(20, +e.target.value || 42));
-  S.headerH = v; save(); draw();
+  S.headerH = Math.min(90, Math.max(20, +e.target.value || 42));
+  save(); draw();
 });
-$('#fBook').addEventListener('input', e => { S.book = e.target.value; save(); buildChips(); });
-$('#fDict').addEventListener('input', e => { S.dict = e.target.value; save(); });
+// book and dictionary are per letter language
+$('#fBook').addEventListener('input', e => { S.book[LL()] = e.target.value; save(); buildChips(); });
+$('#fDict').addEventListener('input', e => { S.dict[LL()] = e.target.value; save(); });
 
-/* header image — downscaled and kept in IndexedDB, never localStorage */
 $('#fHeader').addEventListener('change', async e => {
   const file = e.target.files?.[0];
   e.target.value = '';
   if (!file) return;
-  busy(true, 'हेडर सहेजा जा रहा है…');
+  busy(true, 'busy.header');
   try {
     const { url, w, h } = await shrink(file, 2000);
     await assets.set('header', url);
     headerSrc = url;
     S.headerH = Math.min(90, Math.max(20, Math.round(180 * (h / w))));
     $('#fHeaderH').value = S.headerH;
-    save(true);
-    draw();
-    toast('हेडर लग गया');
+    save(true); draw();
+    toast(t('toast.headerSet'));
   } catch (err) {
     console.error(err);
-    toast('यह फ़ाइल नहीं पढ़ी जा सकी');
+    toast(t('toast.badFile'));
   } finally { busy(false); }
 });
 
@@ -416,7 +488,7 @@ $('#btnHeaderReset').addEventListener('click', async () => {
   await assets.del('header');
   headerSrc = await probeAny(['assets/header.jpg', 'assets/header.png']);
   draw();
-  toast('हेडर हटा दिया');
+  toast(t('toast.headerGone'));
 });
 
 function shrink(file, maxW) {
@@ -445,9 +517,9 @@ function shrink(file, maxW) {
 /* ── backup ─────────────────────────────────────────────────── */
 
 function doExport() {
-  const blob = new Blob([exportJSON()], { type: 'application/json' });
-  PDF.download(blob, `letterpad-backup-${new Date().toISOString().slice(0, 10)}.json`);
-  toast('बैकअप सहेज लिया');
+  PDF.download(new Blob([exportJSON()], { type: 'application/json' }),
+               `letterpad-backup-${new Date().toISOString().slice(0, 10)}.json`);
+  toast(t('toast.backupSaved'));
 }
 $('#btnExport').addEventListener('click', doExport);
 $('#btnBackup').addEventListener('click', doExport);
@@ -458,13 +530,78 @@ $('#fImport').addEventListener('change', async e => {
   if (!file) return;
   try {
     const n = importJSON(await file.text());
-    fillSettings(); buildChips(); fillForm(); drawList();
-    toast(n ? `${n} पत्र जोड़े गए` : 'कोई नया पत्र नहीं मिला');
+    fillSettings(); fillForm(); drawList();
+    toast(n ? t('toast.imported', { n }) : t('toast.importedNone'));
   } catch (err) {
     console.error(err);
-    toast('फ़ाइल पढ़ी नहीं जा सकी');
+    toast(t('toast.badFile'));
   }
 });
+
+/* ── first-run tour ─────────────────────────────────────────── */
+
+const TOUR = ['tour.1', 'tour.2', 'tour.3'];
+let tourAt = 0;
+
+function drawTour() {
+  const body = $('#tourBody');
+  const h = document.createElement('h3'); h.textContent = t(TOUR[tourAt] + '.t');
+  const p = document.createElement('p');  p.textContent = t(TOUR[tourAt] + '.b');
+  body.replaceChildren(h, p);
+
+  if (tourAt === 0) {                    // language choice, up front
+    const seg = document.createElement('div');
+    seg.className = 'seg';
+    for (const [code, name] of [['hi', 'हिन्दी'], ['en', 'English']]) {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'seg__b' + (uiLang() === code ? ' is-on' : '');
+      b.textContent = name;
+      b.addEventListener('click', () => {
+        S.ui = code; S.lastLetterLang = code;
+        const L = current();
+        if (isEmpty(L)) { L.lang = code; L.cc = CC_DEFAULT[code]; }
+        save(); setUILang(code); fillForm(); drawTour();
+      });
+      seg.append(b);
+    }
+    body.append(seg);
+  }
+
+  $('#tourDots').replaceChildren(...TOUR.map((_, i) => {
+    const d = document.createElement('i');
+    if (i === tourAt) d.className = 'is-on';
+    return d;
+  }));
+  $('#tourNext').textContent = t(tourAt === TOUR.length - 1 ? 'btn.start' : 'btn.next');
+}
+
+function endTour() {
+  S.seenTour = true; save(true);
+  $('#dlgTour').close();
+}
+$('#tourNext').addEventListener('click', () => {
+  if (tourAt === TOUR.length - 1) return endTour();
+  tourAt++; drawTour();
+});
+$('#tourSkip').addEventListener('click', endTour);
+
+/* ── add to home screen ─────────────────────────────────────── */
+
+let installEvt = null;
+window.addEventListener('beforeinstallprompt', e => {
+  e.preventDefault();
+  installEvt = e;
+  $('#btnInstall').hidden = false;
+});
+$('#btnInstall').addEventListener('click', async () => {
+  $('#btnInstall').hidden = true;
+  if (!installEvt) return;
+  installEvt.prompt();
+  await installEvt.userChoice;
+  installEvt = null;
+});
+window.addEventListener('appinstalled', () => { $('#btnInstall').hidden = true; });
 
 /* ── keyboard-aware layout ──────────────────────────────────── */
 
@@ -473,7 +610,7 @@ if (window.visualViewport) {
   const onVV = () => {
     const kb = Math.max(0, window.innerHeight - vv.height - vv.offsetTop);
     document.documentElement.style.setProperty('--kb', kb + 'px');
-    $('#tabbar').hidden = kb > 120;          // reclaim the space while typing
+    $('#tabbar').hidden = kb > 120;      // reclaim the space while typing
   };
   vv.addEventListener('resize', onVV);
   vv.addEventListener('scroll', onVV);
@@ -484,6 +621,7 @@ window.addEventListener('resize', () => requestAnimationFrame(fitStage));
 
 (async function boot() {
   load();
+  setUILang(state.settings.ui || 'hi');
 
   [headerSrc, photoSrc, logoSrc] = await Promise.all([
     assets.get('header').then(v => v || probeAny(['assets/header.jpg', 'assets/header.png'])),
@@ -491,13 +629,13 @@ window.addEventListener('resize', () => requestAnimationFrame(fitStage));
     probeAny(['assets/logo.png', 'assets/logo.jpg']),
   ]);
 
-  const L = current();
-  if (!L.kramank) { L.kramank = '01/' + (new Date().getMonth() + 1) + '/' + String(new Date().getFullYear()).slice(-2); }
-
-  buildChips();
   fillSettings();
   setTarget(F.body);
   fillForm();
+  undoStack = [F.body.value];
+
+  if (!voiceOK) F.body.placeholder = t('ph.bodyNoMic');
+  if (!state.settings.seenTour) { drawTour(); $('#dlgTour').showModal(); }
 
   window.addEventListener('beforeunload', () => save(true));
   document.addEventListener('visibilitychange', () => { if (document.hidden) save(true); });
