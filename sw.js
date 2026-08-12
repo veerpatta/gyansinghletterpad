@@ -4,7 +4,7 @@
    with no signal at all. Bump CACHE on every release.
    ═══════════════════════════════════════════════════════════════ */
 
-const CACHE = 'gsl-v3';
+const CACHE = 'gsl-v4';
 
 const SHELL = [
   '.', 'index.html', 'manifest.webmanifest',

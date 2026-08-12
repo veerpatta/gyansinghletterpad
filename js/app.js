@@ -304,7 +304,13 @@ function go(name) {
 }
 $$('.tabbtn').forEach(b => b.addEventListener('click', () => {
   const run = () => go(b.dataset.tab);
-  document.startViewTransition ? document.startViewTransition(run) : run();
+  if (!document.startViewTransition) return run();
+  const vt = document.startViewTransition(run);
+  // tapping a second tab mid-animation aborts the first transition and
+  // rejects these — expected, and not something to surface as an error
+  vt.finished.catch(() => {});
+  vt.ready.catch(() => {});
+  vt.updateCallbackDone.catch(() => {});
 }));
 
 /* ── history ────────────────────────────────────────────────── */

@@ -68,6 +68,7 @@ export class Voice {
     this.lock = null;
     this.restarts = 0;
     this.restartAt = 0;
+    this.emitted = '';         // session transcript already typed out
   }
 
   get live() { return this.want; }
@@ -88,13 +89,45 @@ export class Voice {
   /** @param reasonKey an i18n key, so the message follows the app language */
   stop(reasonKey = '') {
     this.want = false;
-    if (this.rec) { try { this.rec.onend = null; this.rec.stop(); } catch {} this.rec = null; }
+    this.#kill();
+    this.emitted = '';
     if (this.lock) { try { this.lock.release(); } catch {} this.lock = null; }
     this.h.onInterim('');
     this.h.onState('idle', reasonKey);
   }
 
+  /**
+   * What is genuinely new since the last event.
+   *
+   * Never trust the event's own delta. Android's speech service re-sends a
+   * growing prefix of the utterance — often flagged isFinal — on every single
+   * event, and `resultIndex` can regress to 0 mid-utterance. Emitting each
+   * event's transcript therefore types the staircase
+   *   "मैं" · "मैं यह" · "मैं यह कहना" · …
+   * Instead: rebuild the session transcript from scratch each time and emit
+   * only the tail past the longest common prefix with what we already typed.
+   * That collapses re-sends to nothing and survives a mid-utterance revision.
+   */
+  #delta(all) {
+    const prev = this.emitted;
+    if (all === prev) return '';
+    let i = 0;
+    while (i < prev.length && i < all.length && prev[i] === all[i]) i++;
+    this.emitted = all;
+    return all.slice(i);
+  }
+
+  #kill() {
+    const r = this.rec;
+    if (!r) return;
+    this.rec = null;
+    // drop the handlers first: abort() fires onend, which would restart us
+    try { r.onresult = r.onerror = r.onend = null; r.abort(); } catch {}
+  }
+
   #spin() {
+    this.#kill();              // never leave two recognisers running at once
+    this.emitted = '';         // a new session restarts the results list
     const rec = new SR();
     this.rec = rec;
     // Indian English rather than en-US: the recogniser handles local names
@@ -105,20 +138,22 @@ export class Voice {
     rec.maxAlternatives = 1;
 
     rec.onresult = e => {
-      let interim = '';
-      for (let i = e.resultIndex; i < e.results.length; i++) {
+      let all = '', interim = '';
+      for (let i = 0; i < e.results.length; i++) {
         const r = e.results[i];
-        if (r.isFinal) {
-          const acts = toActions(r[0].transcript, this.h.getDict());
-          if (acts.some(a => a.t === 'stop')) {
-            this.h.onActions(acts.filter(a => a.t !== 'stop'));
-            this.stop();
-            return;
-          }
-          if (acts.length) this.h.onActions(acts);
-        } else {
-          interim += r[0].transcript;
+        if (r.isFinal) all += r[0].transcript;
+        else interim += r[0].transcript;
+      }
+
+      const fresh = this.#delta(all);
+      if (fresh.trim()) {
+        const acts = toActions(fresh, this.h.getDict());
+        if (acts.some(a => a.t === 'stop')) {
+          this.h.onActions(acts.filter(a => a.t !== 'stop'));
+          this.stop();
+          return;
         }
+        if (acts.length) this.h.onActions(acts);
       }
       this.h.onInterim(interim.trim());
     };
