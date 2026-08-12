@@ -41,6 +41,13 @@ function toast(msg) {
 const busy = (on, txt = 'बन रहा है…') => { $('#busyTxt').textContent = txt; $('#busy').hidden = !on; };
 const probe = src => new Promise(r => { const i = new Image(); i.onload = () => r(src); i.onerror = () => r(null); i.src = src; });
 
+/** First of these that actually exists wins — so a replacement asset can be
+ *  dropped in as either .jpg or .png without touching any code. */
+async function probeAny(list) {
+  for (const src of list) { const hit = await probe(src); if (hit) return hit; }
+  return null;
+}
+
 function grow(t) { t.style.height = 'auto'; t.style.height = t.scrollHeight + 'px'; }
 function fire(t) { t.dispatchEvent(new Event('input', { bubbles: true })); }
 
@@ -407,7 +414,7 @@ $('#fHeader').addEventListener('change', async e => {
 
 $('#btnHeaderReset').addEventListener('click', async () => {
   await assets.del('header');
-  headerSrc = await probe('assets/header.jpg');
+  headerSrc = await probeAny(['assets/header.jpg', 'assets/header.png']);
   draw();
   toast('हेडर हटा दिया');
 });
@@ -479,9 +486,9 @@ window.addEventListener('resize', () => requestAnimationFrame(fitStage));
   load();
 
   [headerSrc, photoSrc, logoSrc] = await Promise.all([
-    assets.get('header').then(v => v || probe('assets/header.jpg')),
-    probe('assets/photo.png'),
-    probe('assets/logo.png'),
+    assets.get('header').then(v => v || probeAny(['assets/header.jpg', 'assets/header.png'])),
+    probeAny(['assets/photo.jpg', 'assets/photo.png']),
+    probeAny(['assets/logo.png', 'assets/logo.jpg']),
   ]);
 
   const L = current();

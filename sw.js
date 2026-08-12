@@ -4,7 +4,7 @@
    with no signal at all. Bump CACHE on every release.
    ═══════════════════════════════════════════════════════════════ */
 
-const CACHE = 'gsl-v1';
+const CACHE = 'gsl-v2';
 
 const SHELL = [
   '.', 'index.html', 'manifest.webmanifest',
@@ -14,6 +14,7 @@ const SHELL = [
   'vendor/html2canvas.min.js', 'vendor/jspdf.umd.min.js',
   'fonts/NotoSansDevanagari-dev.woff2', 'fonts/NotoSansDevanagari-latin.woff2',
   'assets/icon-192.png', 'assets/icon-512.png',
+  'assets/photo.jpg', 'assets/logo.png',
 ];
 
 self.addEventListener('install', e => {
